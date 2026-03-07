@@ -1,0 +1,27 @@
+; PlexSessionPoll configuration
+;
+; 1) Sign in to https://app.plex.tv
+; 2) Open: https://plex.tv/api/resources?includeHttps=1
+; 3) In browser dev tools, copy your X-Plex-Token from the request URL
+; 4) Set Server to Plex server hostname or IP (examples: plex.local or 192.168.1.20)
+; 5) Set Port (default Plex is 32400) and optional UseHttps/TimeoutMs
+; 6) Add player mappings under [Players]: machineIdentifier=ParentDeviceRef
+; 7) Paste your token below and save this file
+;
+[Plex]
+Server=REPLACE_ME_WITH_PLEX_SERVER
+Port=32400
+UseHttps=False
+showLastPlayedWhenStopped=false
+TimeoutMs=10000
+ResolveTimeoutMs=10000
+ConnectTimeoutMs=10000
+SendTimeoutMs=10000
+ReceiveTimeoutMs=10000
+Token=REPLACE_ME_WITH_PLEX_TOKEN
+
+[Players]
+; machineIdentifier=ParentDeviceRef
+0f704be1a49fa5bee07af310cf52d9fa=273
+e8126407fd12a306-com-plexapp-android=459
+5dc5677ac39af7e8-com-plexapp-android=556
