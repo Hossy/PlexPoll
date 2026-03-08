@@ -51,6 +51,8 @@ Sub Main(ByVal parm As Object)
     Dim showLastRaw As String
     showLastRaw = ReadIniStringWithFallback("Plex", "showLastPlayedWhenStopped", iniFile, "Settings", "showLastPlayedWhenStopped", blPlexIniFile, "false")
     showLastPlayedWhenStopped = IsIniTrue(showLastRaw)
+    Dim lyricsEnabled As Boolean
+    lyricsEnabled = IsIniTrue(ReadIniStringWithFallback("Plex", "lyricsEnabled", iniFile, "Settings", "lyricsEnabled", blPlexIniFile, "false"))
 
     Dim portRaw As String
     portRaw = ReadIniStringWithFallback("Plex", "Port", iniFile, "Settings", "plexPort", blPlexIniFile, "32400")
@@ -193,21 +195,24 @@ Sub Main(ByVal parm As Object)
             Dim featureMap
             featureMap = GetFeatureMapForParent(featureMapCache, parentRef)
 
+            Dim mediaType As String
+            mediaType = SafeAttr(session, "type")
+
             Dim rating As String
-            rating = SafeAttr(session, "audienceRating")
-            If rating = "" Then
-                Dim ratingNode
-                ratingNode = session.selectSingleNode("Rating[@type='audience']")
-                If Not ratingNode Is Nothing Then
-                    rating = SafeAttr(ratingNode, "value")
-                End If
+            If LCase(mediaType) = "track" Then
+                rating = "Not Set"
+            Else
+                rating = SafeAttr(session, "rating")
+                If rating = "" Then rating = "None"
             End If
 
             Dim contentRating As String
-            contentRating = SafeAttr(session, "contentRating")
-
-            Dim mediaType As String
-            mediaType = SafeAttr(session, "type")
+            If LCase(mediaType) = "track" Then
+                contentRating = "Not Set"
+            Else
+                contentRating = SafeAttr(session, "contentRating")
+                If contentRating = "" Then contentRating = "None"
+            End If
 
             Dim mediaFilePath As String
             mediaFilePath = ""
@@ -219,9 +224,11 @@ Sub Main(ByVal parm As Object)
 
             Dim mediaFile As String
             mediaFile = FileNameFromPath(mediaFilePath)
+            If mediaFile = "" Then mediaFile = "None"
+            If mediaFilePath = "" Then mediaFilePath = "None"
 
             Dim artworkThumb As String
-            artworkThumb = SafeAttr(session, "thumb")
+            artworkThumb = BuildArtworkThumbHtml(SafeAttr(session, "thumb"), SafeAttr(session, "parentThumb"), scheme, SERVER, portNumber, TOKEN)
 
             Dim userName As String
             userName = ""
@@ -238,6 +245,9 @@ Sub Main(ByVal parm As Object)
             If LCase(mediaType) = "track" Then
                 artist = SafeAttr(session, "grandparentTitle")
                 album = SafeAttr(session, "parentTitle")
+            Else
+                artist = "Not Set"
+                album = "Not Set"
             End If
 
             Dim durationText As String
@@ -254,14 +264,16 @@ Sub Main(ByVal parm As Object)
             SetFeatureString(featureMap, "Progress", progressText)
             SetFeatureString(featureMap, "TimeRemaining", remainingText)
             SetFeatureString(featureMap, "MediaType", mediaType)
-            SetFeatureString(featureMap, "MediaTitle", title)
+            SetFeatureString(featureMap, "MediaTitle", BuildBlPlexMediaTitle(session, mediaType))
             SetFeatureString(featureMap, "MediaFile", mediaFile)
             SetFeatureString(featureMap, "MediaFilePath", mediaFilePath)
             SetFeatureString(featureMap, "ArtworkThumb", artworkThumb)
+            SetFeatureString(featureMap, "Lyrics", GetLyricsText(session, mediaType, lyricsEnabled, scheme, SERVER, portNumber, TOKEN, resolveTimeoutMs, connectTimeoutMs, sendTimeoutMs, receiveTimeoutMs))
             SetFeatureString(featureMap, "Artist", artist)
             SetFeatureString(featureMap, "Album", album)
             SetFeatureString(featureMap, "User", userName)
 
+            SetMediaTypeValue(featureMap, mediaType)
             SetParentStateByValue(parentRef, state)
 
             If featureMap.Exists("progress") Then
@@ -347,6 +359,7 @@ Sub EnsureIniFile(ByVal iniFile As String)
         tf.WriteLine("Port=32400")
         tf.WriteLine("UseHttps=False")
         tf.WriteLine("showLastPlayedWhenStopped=false")
+        tf.WriteLine("lyricsEnabled=false")
         tf.WriteLine("TimeoutMs=10000")
         tf.WriteLine("ResolveTimeoutMs=10000")
         tf.WriteLine("ConnectTimeoutMs=10000")
@@ -607,9 +620,7 @@ End Function
 ' zero -> "None"; non-numeric -> pass through raw viewOffset string.
 Function ToBlPlexProgressText(ByVal viewOffsetRaw As String) As String
     Dim ms As Double
-    Dim raw As String
     ms = 0
-    raw = LCase(Trim(viewOffsetRaw))
 
     If IsNumeric(viewOffsetRaw) Then
         ms = CDbl(viewOffsetRaw)
@@ -618,9 +629,6 @@ Function ToBlPlexProgressText(ByVal viewOffsetRaw As String) As String
         Else
             ToBlPlexProgressText = "None"
         End If
-    ElseIf raw = "" Or raw = "unknown" Then
-        ' Avoid transient "Unknown" at session start before first numeric offset arrives.
-        ToBlPlexProgressText = "None"
     Else
         ToBlPlexProgressText = viewOffsetRaw
     End If
@@ -662,20 +670,25 @@ Sub ApplyStoppedDefaults(ByVal debugEnabled As Boolean, ByVal runId As String, B
     DebugLog(debugEnabled, runId, "PlexPoll", "No active session for mapped player " & playerID & "; applying stopped defaults")
 
     SetFeatureString(featureMap, "PlayerIdentifier", playerID)
+    SetFeatureString(featureMap, "Rating", notSetText)
+    SetFeatureString(featureMap, "ContentRating", notSetText)
+    SetFeatureString(featureMap, "Duration", notSetText)
+    SetFeatureString(featureMap, "Progress", notSetText)
+    SetFeatureString(featureMap, "TimeRemaining", notSetText)
+    SetFeatureString(featureMap, "Lyrics", notSetText)
+    SetFeatureString(featureMap, "Artist", notSetText)
+    SetFeatureString(featureMap, "Album", notSetText)
+
+    If featureMap.Exists("mediatype") Then
+        SetDeviceValueIfChanged(CInt(featureMap("mediatype")), 0)
+    End If
+
     If Not showLastPlayedWhenStopped Then
-        SetFeatureString(featureMap, "Rating", notSetText)
-        SetFeatureString(featureMap, "ContentRating", notSetText)
-        SetFeatureString(featureMap, "Duration", notSetText)
-        SetFeatureString(featureMap, "Progress", notSetText)
-        SetFeatureString(featureMap, "TimeRemaining", notSetText)
         SetFeatureString(featureMap, "MediaType", notSetText)
         SetFeatureString(featureMap, "MediaTitle", notSetText)
         SetFeatureString(featureMap, "MediaFile", notSetText)
         SetFeatureString(featureMap, "MediaFilePath", notSetText)
         SetFeatureString(featureMap, "ArtworkThumb", notSetText)
-        SetFeatureString(featureMap, "Lyrics", notSetText)
-        SetFeatureString(featureMap, "Artist", notSetText)
-        SetFeatureString(featureMap, "Album", notSetText)
         SetFeatureString(featureMap, "User", notSetText)
     End If
 
@@ -698,7 +711,7 @@ End Sub
 
 Sub ValidateMappedFeatures(ByVal runId As String, ByVal playerMap As Object, ByVal featureMapCache As Object)
     Dim required
-    required = Split("playeridentifier,rating,contentrating,duration,timeremaining,mediatype,mediatitle,mediafile,mediafilepath,artworkthumb,artist,album,user,progress", ",")
+    required = Split("playeridentifier,rating,contentrating,duration,timeremaining,mediatype,mediatitle,mediafile,mediafilepath,artworkthumb,lyrics,artist,album,user,progress", ",")
 
     Dim checkedParents
     checkedParents = CreateObject("Scripting.Dictionary")
@@ -783,4 +796,142 @@ Function ResolveParentStateValue(ByVal parentRef As Integer, ByVal stateLabel As
     End Select
 
     On Error GoTo 0
+End Function
+
+Sub SetMediaTypeValue(ByVal featureMap As Object, ByVal mediaType As String)
+    If Not featureMap.Exists("mediatype") Then Exit Sub
+
+    Dim targetRef As Integer
+    Dim mt As String
+    targetRef = CInt(featureMap("mediatype"))
+    mt = LCase(Trim(mediaType))
+
+    Select Case mt
+        Case "episode"
+            SetDeviceValueIfChanged(targetRef, 1)
+        Case "movie"
+            SetDeviceValueIfChanged(targetRef, 2)
+        Case "track"
+            SetDeviceValueIfChanged(targetRef, 3)
+        Case "clip"
+            SetDeviceValueIfChanged(targetRef, 4)
+    End Select
+End Sub
+
+Function BuildBlPlexMediaTitle(ByVal session As Object, ByVal mediaType As String) As String
+    Dim t As String
+    t = SafeAttr(session, "title")
+    If t = "" Then t = "(untitled)"
+
+    If LCase(Trim(mediaType)) = "episode" Then
+        Dim gpt As String
+        Dim parentIndex As String
+        Dim episodeIndex As String
+        gpt = SafeAttr(session, "grandparentTitle")
+        parentIndex = SafeAttr(session, "parentIndex")
+        episodeIndex = SafeAttr(session, "index")
+
+        If Trim(gpt) <> "" Then
+            If IsNumeric(parentIndex) And IsNumeric(episodeIndex) Then
+                BuildBlPlexMediaTitle = gpt & " - S" & Right("0" & CStr(CInt(parentIndex)), 2) & "E" & Right("0" & CStr(CInt(episodeIndex)), 2) & " - " & t
+            Else
+                BuildBlPlexMediaTitle = gpt & ": " & t
+            End If
+            Exit Function
+        End If
+    End If
+
+    BuildBlPlexMediaTitle = t
+End Function
+
+Function BuildArtworkThumbHtml(ByVal thumb As String, ByVal parentThumb As String, ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal token As String) As String
+    Dim src As String
+    src = Trim(parentThumb)
+    If src = "" Then src = Trim(thumb)
+    If src = "" Then
+        BuildArtworkThumbHtml = "Not Set"
+        Exit Function
+    End If
+
+    If Left(LCase(src), 7) <> "http://" And Left(LCase(src), 8) <> "https://" Then
+        src = scheme & "://" & server & ":" & CStr(port) & src
+    End If
+
+    If token <> "" Then
+        If InStr(1, src, "?", vbTextCompare) > 0 Then
+            src = src & "&X-Plex-Token=" & token
+        Else
+            src = src & "?X-Plex-Token=" & token
+        End If
+    End If
+
+    BuildArtworkThumbHtml = "<img src=""" & src & """ style=""width: 30%; height: 30%"">"
+End Function
+
+Function GetLyricsText(ByVal session As Object, ByVal mediaType As String, ByVal lyricsEnabled As Boolean, ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal token As String, ByVal resolveTimeoutMs As Integer, ByVal connectTimeoutMs As Integer, ByVal sendTimeoutMs As Integer, ByVal receiveTimeoutMs As Integer) As String
+    If LCase(Trim(mediaType)) <> "track" Then
+        GetLyricsText = "Not Set"
+        Exit Function
+    End If
+
+    If Not lyricsEnabled Then
+        GetLyricsText = "Not Set"
+        Exit Function
+    End If
+
+    Dim lyricsStream
+    lyricsStream = session.selectSingleNode("Media/Part/Stream[@streamType='4']")
+    If lyricsStream Is Nothing Then
+        GetLyricsText = "Not Set"
+        Exit Function
+    End If
+
+    Dim key As String
+    key = SafeAttr(lyricsStream, "key")
+    If key = "" Then
+        GetLyricsText = "Not Set"
+        Exit Function
+    End If
+
+    Dim rawText As String
+    rawText = FetchPlexPathText(scheme, server, port, key, token, resolveTimeoutMs, connectTimeoutMs, sendTimeoutMs, receiveTimeoutMs)
+    rawText = Replace(rawText, vbCrLf, "<br>")
+    rawText = Replace(rawText, vbCr, "<br>")
+    rawText = Replace(rawText, vbLf, "<br>")
+    rawText = Trim(rawText)
+    If rawText = "" Then
+        GetLyricsText = "Not Set"
+    Else
+        GetLyricsText = rawText
+    End If
+End Function
+
+Function FetchPlexPathText(ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal pathWithLeadingSlash As String, ByVal token As String, ByVal resolveTimeoutMs As Integer, ByVal connectTimeoutMs As Integer, ByVal sendTimeoutMs As Integer, ByVal receiveTimeoutMs As Integer) As String
+    On Error GoTo FetchErr
+
+    Dim url As String
+    url = scheme & "://" & server & ":" & CStr(port) & pathWithLeadingSlash
+    If token <> "" Then
+        If InStr(1, url, "?", vbTextCompare) > 0 Then
+            url = url & "&X-Plex-Token=" & token
+        Else
+            url = url & "?X-Plex-Token=" & token
+        End If
+    End If
+
+    Dim http
+    http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    http.setTimeouts(resolveTimeoutMs, connectTimeoutMs, sendTimeoutMs, receiveTimeoutMs)
+    http.Open("GET", url, False)
+    http.Send
+
+    If CInt(http.Status) = 200 Then
+        FetchPlexPathText = CStr(http.responseText)
+    Else
+        FetchPlexPathText = ""
+    End If
+    Exit Function
+
+FetchErr:
+    FetchPlexPathText = ""
 End Function
