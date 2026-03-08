@@ -241,22 +241,17 @@ Sub Main(ByVal parm As Object)
             End If
 
             Dim durationText As String
+            Dim progressText As String
             Dim remainingText As String
-            Dim remainingMs As Double
-            durationText = ""
-            remainingText = ""
-            remainingMs = 0
-            If durationMs > 0 Then
-                remainingMs = durationMs - viewOffsetMs
-                If remainingMs < 0 Then remainingMs = 0
-                durationText = FormatDuration(durationMs)
-                remainingText = FormatDuration(remainingMs)
-            End If
+            durationText = ToBlPlexDurationText(duration)
+            progressText = ToBlPlexProgressText(viewOffset)
+            remainingText = ToBlPlexTimeRemainingText(duration, viewOffset)
 
             SetFeatureString(featureMap, "PlayerIdentifier", playerID)
             SetFeatureString(featureMap, "Rating", rating)
             SetFeatureString(featureMap, "ContentRating", contentRating)
             SetFeatureString(featureMap, "Duration", durationText)
+            SetFeatureString(featureMap, "Progress", progressText)
             SetFeatureString(featureMap, "TimeRemaining", remainingText)
             SetFeatureString(featureMap, "MediaType", mediaType)
             SetFeatureString(featureMap, "MediaTitle", title)
@@ -559,6 +554,105 @@ Function FormatDuration(ByVal milliseconds As Double) As String
     FormatDuration = CStr(hours) & ":" & Right("0" & CStr(minutes), 2) & ":" & Right("0" & CStr(seconds), 2)
 End Function
 
+ ' BLPlex base formatter used by Duration/Progress/TimeRemaining
+ ' (decompiled lines 13924-14162):
+ ' milliseconds -> "<n> hrs, <n> mins, <n> secs" with only non-zero units.
+Function FormatDurationBlPlex(ByVal milliseconds As Double) As String
+    Dim totalSeconds As Long
+    Dim hours As Long
+    Dim minutes As Long
+    Dim seconds As Long
+    Dim result As String
+
+    If milliseconds < 0 Then milliseconds = 0
+
+    totalSeconds = CLng(Fix(milliseconds / 1000))
+    hours = totalSeconds \ 3600
+    minutes = (totalSeconds Mod 3600) \ 60
+    seconds = totalSeconds Mod 60
+
+    result = ""
+    If hours > 0 Then
+        result = CStr(hours) & " hrs"
+    End If
+
+    If minutes > 0 Then
+        If result <> "" Then result = result & ", "
+        result = result & CStr(minutes) & " mins"
+    End If
+
+    If seconds > 0 Then
+        If result <> "" Then result = result & ", "
+        result = result & CStr(seconds) & " secs"
+    End If
+
+    FormatDurationBlPlex = result
+End Function
+
+' BLPlex Duration wrapper behavior (decompiled lines 13924-13986):
+' if duration is non-numeric, pass through raw duration string.
+Function ToBlPlexDurationText(ByVal durationRaw As String) As String
+    Dim ms As Double
+    ms = 0
+
+    If IsNumeric(durationRaw) Then
+        ms = CDbl(durationRaw)
+        ToBlPlexDurationText = FormatDurationBlPlex(ms)
+    Else
+        ToBlPlexDurationText = durationRaw
+    End If
+End Function
+
+' BLPlex Progress wrapper behavior (decompiled lines 13988-14068):
+' zero -> "None"; non-numeric -> pass through raw viewOffset string.
+Function ToBlPlexProgressText(ByVal viewOffsetRaw As String) As String
+    Dim ms As Double
+    Dim raw As String
+    ms = 0
+    raw = LCase(Trim(viewOffsetRaw))
+
+    If IsNumeric(viewOffsetRaw) Then
+        ms = CDbl(viewOffsetRaw)
+        If ms > 0 Then
+            ToBlPlexProgressText = FormatDurationBlPlex(ms)
+        Else
+            ToBlPlexProgressText = "None"
+        End If
+    ElseIf raw = "" Or raw = "unknown" Then
+        ' Avoid transient "Unknown" at session start before first numeric offset arrives.
+        ToBlPlexProgressText = "None"
+    Else
+        ToBlPlexProgressText = viewOffsetRaw
+    End If
+End Function
+
+' BLPlex TimeRemaining wrapper behavior (decompiled lines 14070-14162):
+' remaining > 0 -> formatted duration; remaining = 0 -> "Finished";
+' remaining < 0 or invalid input -> "N/A".
+Function ToBlPlexTimeRemainingText(ByVal durationRaw As String, ByVal viewOffsetRaw As String) As String
+    Dim durationMs As Double
+    Dim viewOffsetMs As Double
+    Dim remainingMs As Double
+    durationMs = 0
+    viewOffsetMs = 0
+    remainingMs = 0
+
+    If IsNumeric(durationRaw) And IsNumeric(viewOffsetRaw) Then
+        durationMs = CDbl(durationRaw)
+        viewOffsetMs = CDbl(viewOffsetRaw)
+        remainingMs = durationMs - viewOffsetMs
+        If remainingMs > 0 Then
+            ToBlPlexTimeRemainingText = FormatDurationBlPlex(remainingMs)
+        ElseIf remainingMs = 0 Then
+            ToBlPlexTimeRemainingText = "Finished"
+        Else
+            ToBlPlexTimeRemainingText = "N/A"
+        End If
+    Else
+        ToBlPlexTimeRemainingText = "N/A"
+    End If
+End Function
+
 Sub ApplyStoppedDefaults(ByVal debugEnabled As Boolean, ByVal runId As String, ByVal playerID As String, ByVal parentRef As Integer, ByVal featureMapCache As Object, ByVal showLastPlayedWhenStopped As Boolean)
     Dim featureMap As Object
     Dim notSetText As String
@@ -572,6 +666,7 @@ Sub ApplyStoppedDefaults(ByVal debugEnabled As Boolean, ByVal runId As String, B
         SetFeatureString(featureMap, "Rating", notSetText)
         SetFeatureString(featureMap, "ContentRating", notSetText)
         SetFeatureString(featureMap, "Duration", notSetText)
+        SetFeatureString(featureMap, "Progress", notSetText)
         SetFeatureString(featureMap, "TimeRemaining", notSetText)
         SetFeatureString(featureMap, "MediaType", notSetText)
         SetFeatureString(featureMap, "MediaTitle", notSetText)
