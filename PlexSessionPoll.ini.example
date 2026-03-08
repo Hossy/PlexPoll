@@ -13,12 +13,18 @@ Server=REPLACE_ME_WITH_PLEX_SERVER
 Port=32400
 UseHttps=False
 showLastPlayedWhenStopped=false
+lyricsEnabled=false
 TimeoutMs=10000
 ResolveTimeoutMs=10000
 ConnectTimeoutMs=10000
 SendTimeoutMs=10000
 ReceiveTimeoutMs=10000
 Token=REPLACE_ME_WITH_PLEX_TOKEN
+
+[Parity]
+; Set to true to mirror BLPlex behavior for specific fields.
+ratingContentRating=false
+artworkUrlHttp=false
 
 [Players]
 ; machineIdentifier=ParentDeviceRef

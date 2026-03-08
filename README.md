@@ -44,6 +44,7 @@ Copyright (C) John Greg Hossbach
 
 - `UseHttps` (`true/false`)
 - `showLastPlayedWhenStopped` (`true/false`)
+- `lyricsEnabled` (`true/false`)
 - Timeout values:
   - `TimeoutMs`
   - `ResolveTimeoutMs`
@@ -51,11 +52,21 @@ Copyright (C) John Greg Hossbach
   - `SendTimeoutMs`
   - `ReceiveTimeoutMs`
 
+`[Parity]` section (all default `false`):
+
+- `ratingContentRating`
+  - `false` (recommended): blank `Rating`/`ContentRating` render as `None`.
+  - `true`: mimic BLPlex behavior (blank values remain blank).
+- `artworkUrlHttp`
+  - `false` (recommended): artwork URL honors `UseHttps`.
+  - `true`: mimic BLPlex behavior (artwork URL forced to `http://`).
+
 Fallback behavior (if not set in `PlexSessionPoll.ini`):
 
 - `Server` falls back to `hspi_BLPlex.ini` -> `[Settings] plexIpAddress`
 - `Port` falls back to `hspi_BLPlex.ini` -> `[Settings] plexPort`
 - `showLastPlayedWhenStopped` falls back to `hspi_BLPlex.ini` -> `[Settings] showLastPlayedWhenStopped`
+- `lyricsEnabled` falls back to `hspi_BLPlex.ini` -> `[Settings] lyricsEnabled` (then defaults to `false` if missing in both files)
 
 ## HomeSeer Scripting Reminder
 

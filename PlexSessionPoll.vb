@@ -53,6 +53,10 @@ Sub Main(ByVal parm As Object)
     showLastPlayedWhenStopped = IsIniTrue(showLastRaw)
     Dim lyricsEnabled As Boolean
     lyricsEnabled = IsIniTrue(ReadIniStringWithFallback("Plex", "lyricsEnabled", iniFile, "Settings", "lyricsEnabled", blPlexIniFile, "false"))
+    Dim parityRatingContentRating As Boolean
+    Dim parityArtworkUrlHttp As Boolean
+    parityRatingContentRating = IsIniTrue(ReadIniStringWithFallback("Parity", "ratingContentRating", iniFile, "Settings", "strictBlPlexParity", blPlexIniFile, "false"))
+    parityArtworkUrlHttp = IsIniTrue(ReadIniStringWithFallback("Parity", "artworkUrlHttp", iniFile, "Settings", "strictBlPlexParity", blPlexIniFile, "false"))
 
     Dim portRaw As String
     portRaw = ReadIniStringWithFallback("Plex", "Port", iniFile, "Settings", "plexPort", blPlexIniFile, "32400")
@@ -203,7 +207,8 @@ Sub Main(ByVal parm As Object)
                 rating = "Not Set"
             Else
                 rating = SafeAttr(session, "rating")
-                If rating = "" Then rating = "None"
+                ' UX mode (parityRatingContentRating=false): render blank values as "None" instead of empty strings.
+                If (Not parityRatingContentRating) And rating = "" Then rating = "None"
             End If
 
             Dim contentRating As String
@@ -211,7 +216,7 @@ Sub Main(ByVal parm As Object)
                 contentRating = "Not Set"
             Else
                 contentRating = SafeAttr(session, "contentRating")
-                If contentRating = "" Then contentRating = "None"
+                If (Not parityRatingContentRating) And contentRating = "" Then contentRating = "None"
             End If
 
             Dim mediaFilePath As String
@@ -228,7 +233,7 @@ Sub Main(ByVal parm As Object)
             If mediaFilePath = "" Then mediaFilePath = "None"
 
             Dim artworkThumb As String
-            artworkThumb = BuildArtworkThumbHtml(SafeAttr(session, "thumb"), SafeAttr(session, "parentThumb"), scheme, SERVER, portNumber, TOKEN)
+            artworkThumb = BuildArtworkThumbHtml(SafeAttr(session, "thumb"), SafeAttr(session, "parentThumb"), scheme, SERVER, portNumber, TOKEN, parityArtworkUrlHttp)
 
             Dim userName As String
             userName = ""
@@ -366,6 +371,11 @@ Sub EnsureIniFile(ByVal iniFile As String)
         tf.WriteLine("SendTimeoutMs=10000")
         tf.WriteLine("ReceiveTimeoutMs=10000")
         tf.WriteLine("Token=REPLACE_ME_WITH_PLEX_TOKEN")
+        tf.WriteLine("")
+        tf.WriteLine("[Parity]")
+        tf.WriteLine("; Set to true to mirror BLPlex behavior for specific fields.")
+        tf.WriteLine("ratingContentRating=false")
+        tf.WriteLine("artworkUrlHttp=false")
         tf.WriteLine("")
         tf.WriteLine("[Players]")
         tf.WriteLine("; machineIdentifier=ParentDeviceRef")
@@ -844,7 +854,7 @@ Function BuildBlPlexMediaTitle(ByVal session As Object, ByVal mediaType As Strin
     BuildBlPlexMediaTitle = t
 End Function
 
-Function BuildArtworkThumbHtml(ByVal thumb As String, ByVal parentThumb As String, ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal token As String) As String
+Function BuildArtworkThumbHtml(ByVal thumb As String, ByVal parentThumb As String, ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal token As String, ByVal parityArtworkUrlHttp As Boolean) As String
     Dim src As String
     src = Trim(parentThumb)
     If src = "" Then src = Trim(thumb)
@@ -854,7 +864,12 @@ Function BuildArtworkThumbHtml(ByVal thumb As String, ByVal parentThumb As Strin
     End If
 
     If Left(LCase(src), 7) <> "http://" And Left(LCase(src), 8) <> "https://" Then
-        src = scheme & "://" & server & ":" & CStr(port) & src
+        ' parityArtworkUrlHttp=true mirrors BLPlex behavior by forcing HTTP for artwork URLs.
+        If parityArtworkUrlHttp Then
+            src = "http://" & server & ":" & CStr(port) & src
+        Else
+            src = scheme & "://" & server & ":" & CStr(port) & src
+        End If
     End If
 
     If token <> "" Then
@@ -895,15 +910,29 @@ Function GetLyricsText(ByVal session As Object, ByVal mediaType As String, ByVal
 
     Dim rawText As String
     rawText = FetchPlexPathText(scheme, server, port, key, token, resolveTimeoutMs, connectTimeoutMs, sendTimeoutMs, receiveTimeoutMs)
-    rawText = Replace(rawText, vbCrLf, "<br>")
-    rawText = Replace(rawText, vbCr, "<br>")
-    rawText = Replace(rawText, vbLf, "<br>")
+    rawText = NormalizeBlPlexLyricsHtml(rawText)
     rawText = Trim(rawText)
     If rawText = "" Then
         GetLyricsText = "Not Set"
     Else
         GetLyricsText = rawText
     End If
+End Function
+
+Function NormalizeBlPlexLyricsHtml(ByVal rawText As String) As String
+    On Error GoTo LyricsErr
+
+    rawText = Replace(rawText, vbCrLf, "<br>")
+    rawText = Replace(rawText, vbCr, "<br>")
+    rawText = Replace(rawText, vbLf, "<br>")
+    rawText = System.Text.RegularExpressions.Regex.Replace(rawText, "\[([^\[\]]*)\]", "")
+    rawText = Replace(rawText, "<br><br><br>", "<br>")
+
+    NormalizeBlPlexLyricsHtml = rawText
+    Exit Function
+
+LyricsErr:
+    NormalizeBlPlexLyricsHtml = rawText
 End Function
 
 Function FetchPlexPathText(ByVal scheme As String, ByVal server As String, ByVal port As Integer, ByVal pathWithLeadingSlash As String, ByVal token As String, ByVal resolveTimeoutMs As Integer, ByVal connectTimeoutMs As Integer, ByVal sendTimeoutMs As Integer, ByVal receiveTimeoutMs As Integer) As String
